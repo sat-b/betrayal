@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { ClientMessage, ServerMessage, RoomState } from '../types';
 
-const PARTYKIT_HOST = import.meta.env.VITE_PARTYKIT_HOST || 'localhost:1999';
+const PARTYKIT_HOST = (import.meta.env.VITE_PARTYKIT_HOST || 'localhost:1999').replace(/\/$/, '');
 console.log('[Config] PARTYKIT_HOST:', PARTYKIT_HOST);
 
 interface UsePartySocketOptions {
