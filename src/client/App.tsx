@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { usePartySocket } from './hooks/usePartySocket';
 import { useVoiceChat } from './hooks/useVoiceChat';
 import { useGameState } from './hooks/useGameState';
@@ -57,10 +57,20 @@ export default function App() {
     setScreen('joining');
   };
 
+  // Track if we've sent join message
+  const hasJoined = useRef(false);
+
   // Auto-join when connected
-  if (screen === 'joining' && connected && !state) {
-    send({ type: 'join', name: playerName });
-  }
+  useEffect(() => {
+    if (screen === 'joining' && connected && !hasJoined.current && playerName) {
+      hasJoined.current = true;
+      send({ type: 'join', name: playerName });
+    }
+    // Reset when going back to home
+    if (screen === 'home') {
+      hasJoined.current = false;
+    }
+  }, [screen, connected, playerName, send]);
 
   const handleConfigChange = (config: Partial<GameConfig>) => {
     send({ type: 'config', config });
