@@ -62,6 +62,7 @@ export default function App() {
   // Auto-join when connected
   useEffect(() => {
     if (screen === 'joining' && connected && !hasJoined.current && playerName) {
+      console.log('[App] Sending join message for:', playerName, 'to room:', roomCode);
       hasJoined.current = true;
       send({ type: 'join', name: playerName });
     }

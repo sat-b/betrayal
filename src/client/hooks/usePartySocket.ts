@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import type { ClientMessage, ServerMessage, RoomState } from '../types';
 
 const PARTYKIT_HOST = import.meta.env.VITE_PARTYKIT_HOST || 'localhost:1999';
+console.log('[Config] PARTYKIT_HOST:', PARTYKIT_HOST);
 
 interface UsePartySocketOptions {
   roomCode: string;
@@ -22,6 +23,8 @@ export function usePartySocket({ roomCode, onMessage }: UsePartySocketOptions) {
     const isLocal = PARTYKIT_HOST.includes('localhost');
     const protocol = isLocal ? 'ws' : 'wss';
     const wsUrl = `${protocol}://${PARTYKIT_HOST}/parties/main/${roomCode.toUpperCase()}`;
+
+    console.log('[WebSocket] Connecting to:', wsUrl);
 
     const socket = new WebSocket(wsUrl);
 
@@ -44,7 +47,10 @@ export function usePartySocket({ roomCode, onMessage }: UsePartySocketOptions) {
       try {
         const message = JSON.parse(event.data) as ServerMessage;
 
+        console.log('[WebSocket] Received:', message.type, message);
+
         if (message.type === 'state') {
+          console.log('[WebSocket] State update - players:', Object.keys(message.state.players), 'playerId:', message.playerId);
           setState(message.state);
           setPlayerId(message.playerId);
         } else if (message.type === 'error') {

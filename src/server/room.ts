@@ -64,6 +64,7 @@ export default class BetrayalRoom implements Party.Server {
   revealTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(readonly room: Party.Room) {
+    console.log(`[Room] Created room with id: ${room.id}, name: ${room.name}`);
     this.state = {
       roomCode: room.id,
       hostId: '',
@@ -78,6 +79,7 @@ export default class BetrayalRoom implements Party.Server {
   }
 
   onConnect(conn: Party.Connection) {
+    console.log(`[Room ${this.state.roomCode}] Connection: ${conn.id}, existing players: ${Object.keys(this.state.players).join(', ') || 'none'}`);
     // Send current state to new connection
     conn.send(JSON.stringify({
       type: 'state',
@@ -191,6 +193,7 @@ export default class BetrayalRoom implements Party.Server {
       this.state.hostId = conn.id;
     }
 
+    console.log(`[Room ${this.state.roomCode}] Player joined: ${conn.id} (${name}), total players: ${Object.keys(this.state.players).length}`);
     this.broadcast({ type: 'player-joined', player: this.state.players[conn.id] });
     this.broadcastState();
   }
