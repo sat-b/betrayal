@@ -24,10 +24,9 @@ export default function App() {
   const [playerName, setPlayerName] = useState('');
   const [joinCode, setJoinCode] = useState('');
 
-  const handleMessage = useCallback((message: ServerMessage) => {
-    if (message.type === 'state' || message.type === 'round-start') {
-      setScreen('game');
-    }
+  const handleMessage = useCallback((_message: ServerMessage) => {
+    // Don't change screen here - let the rendering logic handle it
+    // based on whether player is in the game
   }, []);
 
   const { connected, playerId, state, error, send, socket } = usePartySocket({
@@ -137,8 +136,11 @@ export default function App() {
     );
   }
 
-  // Connecting screen
-  if (screen === 'joining' && !state) {
+  // Check if player is actually in the game
+  const isInGame = state && playerId && state.players[playerId];
+
+  // Connecting/joining screen - show while connecting or waiting to join
+  if (screen === 'joining' && !isInGame) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-4">
         <div className="text-center space-y-4">
@@ -161,8 +163,8 @@ export default function App() {
     );
   }
 
-  // Game screens
-  if (state && playerId) {
+  // Game screens - only show when player is in the game
+  if (isInGame) {
     if (state.phase === 'LOBBY') {
       return (
         <Lobby

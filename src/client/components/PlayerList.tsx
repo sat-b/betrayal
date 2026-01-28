@@ -48,6 +48,11 @@ export function PlayerList({
                   <span className="font-medium">{player.name}</span>
                   {isYou && <span className="text-xs text-blue-400">(You)</span>}
                   {isHost && <span className="text-xs text-amber-400">👑</span>}
+                  {player.betrayalStreak > 0 && (
+                    <span className="text-xs text-red-400 flex items-center gap-0.5" title={`Betrayal streak: ${player.betrayalStreak}`}>
+                      🔥{player.betrayalStreak}
+                    </span>
+                  )}
                 </div>
                 {showReady && (
                   <div className={`text-xs ${player.ready ? 'text-green-400' : 'text-slate-500'}`}>

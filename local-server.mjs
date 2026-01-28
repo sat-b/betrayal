@@ -65,12 +65,38 @@ function computeDeltas(room, choices) {
   const deltas = {};
 
   for (const [playerId, choice] of Object.entries(choices)) {
+    const player = room.players[playerId];
     let delta = 0;
-    if (B === 0) delta = 2;
-    else if (B === 1) delta = choice === 'B' ? 5 : -2;
-    else delta = choice === 'B' ? 1 : -3;
 
-    // Streak bonus
+    // Base scoring with betrayal tax
+    if (B === 0) {
+      delta = 2;
+    } else if (B === 1) {
+      if (choice === 'B') {
+        // Lone betrayer: 5 - floor(k/2), min 0
+        const k = player.betrayalStreak || 0;
+        delta = Math.max(0, 5 - Math.floor(k / 2));
+      } else {
+        delta = -2;
+      }
+    } else {
+      if (choice === 'B') {
+        // Multi betrayer: max(0, 1 - floor(k/3))
+        const k = player.betrayalStreak || 0;
+        delta = Math.max(0, 1 - Math.floor(k / 3));
+      } else {
+        delta = -3;
+      }
+    }
+
+    // Update betrayal streak
+    if (choice === 'B') {
+      player.betrayalStreak = (player.betrayalStreak || 0) + 1;
+    } else {
+      player.betrayalStreak = 0;
+    }
+
+    // Streak bonus (cooperation streak)
     if (room.config.streakBonus && choice === 'C' && B === 0) {
       const history = room.history;
       if (history.length >= 3) {
@@ -310,7 +336,7 @@ wss.on('connection', (ws, req) => {
             ws.send(JSON.stringify({ type: 'error', message: 'Room is full' }));
             return;
           }
-          room.players[connId] = { id: connId, name, score: 0, ready: false, connected: true };
+          room.players[connId] = { id: connId, name, score: 0, ready: false, connected: true, betrayalStreak: 0 };
           if (!room.hostId) room.hostId = connId;
           broadcast(room, { type: 'player-joined', player: room.players[connId] });
           broadcastState(room);
@@ -374,6 +400,7 @@ wss.on('connection', (ws, req) => {
           for (const player of Object.values(room.players)) {
             player.score = 0;
             player.ready = false;
+            player.betrayalStreak = 0;
           }
           room.phase = 'LOBBY';
           room.roundIndex = 0;

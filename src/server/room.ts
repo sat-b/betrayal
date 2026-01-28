@@ -16,6 +16,7 @@ interface Player {
   score: number;
   ready: boolean;
   connected: boolean;
+  betrayalStreak: number;
 }
 
 interface RoundChoice {
@@ -181,6 +182,7 @@ export default class BetrayalRoom implements Party.Server {
         score: 0,
         ready: false,
         connected: true,
+        betrayalStreak: 0,
       };
     }
 
@@ -264,6 +266,7 @@ export default class BetrayalRoom implements Party.Server {
     for (const player of Object.values(this.state.players)) {
       player.score = 0;
       player.ready = false;
+      player.betrayalStreak = 0;
     }
     this.state.phase = 'LOBBY';
     this.state.roundIndex = 0;
@@ -409,18 +412,38 @@ export default class BetrayalRoom implements Party.Server {
     const deltas: Record<string, number> = {};
 
     for (const [playerId, choice] of Object.entries(choices)) {
+      const player = this.state.players[playerId];
       let delta = 0;
 
-      // Base scoring
+      // Base scoring with betrayal tax
       if (B === 0) {
         delta = 2;
       } else if (B === 1) {
-        delta = choice === 'B' ? 5 : -2;
+        if (choice === 'B') {
+          // Lone betrayer: 5 - floor(k/2), min 0
+          const k = player.betrayalStreak;
+          delta = Math.max(0, 5 - Math.floor(k / 2));
+        } else {
+          delta = -2;
+        }
       } else {
-        delta = choice === 'B' ? 1 : -3;
+        if (choice === 'B') {
+          // Multi betrayer: max(0, 1 - floor(k/3))
+          const k = player.betrayalStreak;
+          delta = Math.max(0, 1 - Math.floor(k / 3));
+        } else {
+          delta = -3;
+        }
       }
 
-      // Streak bonus
+      // Update betrayal streak
+      if (choice === 'B') {
+        player.betrayalStreak++;
+      } else {
+        player.betrayalStreak = 0;
+      }
+
+      // Streak bonus (cooperation streak)
       if (this.state.config.streakBonus && choice === 'C' && B === 0) {
         if (this.hasCooperatedStreak(playerId, 3)) {
           delta += 2;

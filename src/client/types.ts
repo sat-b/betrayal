@@ -14,6 +14,7 @@ export interface Player {
   score: number;
   ready: boolean;
   connected: boolean;
+  betrayalStreak: number;
 }
 
 export interface RoundChoice {
