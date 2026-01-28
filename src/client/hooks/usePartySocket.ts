@@ -21,7 +21,7 @@ export function usePartySocket({ roomCode, onMessage }: UsePartySocketOptions) {
     // Use plain WebSocket for local dev, PartySocket URL format for production
     const isLocal = PARTYKIT_HOST.includes('localhost');
     const protocol = isLocal ? 'ws' : 'wss';
-    const wsUrl = `${protocol}://${PARTYKIT_HOST}/party/main/${roomCode.toUpperCase()}`;
+    const wsUrl = `${protocol}://${PARTYKIT_HOST}/parties/main/${roomCode.toUpperCase()}`;
 
     const socket = new WebSocket(wsUrl);
 
