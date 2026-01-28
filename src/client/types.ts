@@ -69,7 +69,7 @@ export type ServerMessage =
   | { type: 'config-updated'; config: GameConfig }
   | { type: 'round-start'; roundIndex: number; startTime: number }
   | { type: 'choice-locked'; playerId: string }
-  | { type: 'round-reveal'; choices: Record<string, Choice>; deltas: Record<string, number>; scores: Record<string, number>; history: RoundHistory }
+  | { type: 'round-reveal'; choices: Record<string, Choice>; deltas: Record<string, number>; scores: Record<string, number>; streaks: Record<string, number>; history: RoundHistory }
   | { type: 'game-end'; scores: Record<string, number>; awards: Award[] }
   | { type: 'rematch-started' }
   | { type: 'webrtc-signal'; from: string; signal: RTCSessionDescriptionInit | RTCIceCandidateInit }

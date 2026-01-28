@@ -100,7 +100,11 @@ export function usePartySocket({ roomCode, onMessage }: UsePartySocketOptions) {
             players: Object.fromEntries(
               Object.entries(prev.players).map(([id, p]) => [
                 id,
-                { ...p, score: message.scores[id] ?? p.score }
+                {
+                  ...p,
+                  score: message.scores[id] ?? p.score,
+                  betrayalStreak: message.streaks?.[id] ?? p.betrayalStreak
+                }
               ])
             ),
           } : null);

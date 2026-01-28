@@ -363,11 +363,18 @@ export default class BetrayalRoom implements Party.Server {
     };
     this.state.history.push(roundHistory);
 
+    // Collect betrayal streaks to send to clients
+    const streaks: Record<string, number> = {};
+    for (const [playerId, player] of Object.entries(this.state.players)) {
+      streaks[playerId] = player.betrayalStreak;
+    }
+
     this.broadcast({
       type: 'round-reveal',
       choices,
       deltas,
       scores,
+      streaks,
       history: roundHistory,
     });
 
@@ -414,13 +421,24 @@ export default class BetrayalRoom implements Party.Server {
     const B = Object.values(choices).filter(c => c === 'B').length;
     const deltas: Record<string, number> = {};
 
+    // Calculate cooperation streak from history (for scaling bonus)
+    let coopStreak = 0;
+    for (let i = this.state.history.length - 1; i >= 0; i--) {
+      if (this.state.history[i].betrayerCount === 0) {
+        coopStreak++;
+      } else {
+        break;
+      }
+    }
+
     for (const [playerId, choice] of Object.entries(choices)) {
       const player = this.state.players[playerId];
       let delta = 0;
 
       // Base scoring with betrayal tax
       if (B === 0) {
-        delta = 2;
+        // Cooperation scaling: +2, +3, +4, +5... (capped at +6)
+        delta = Math.min(6, 2 + coopStreak);
       } else if (B === 1) {
         if (choice === 'B') {
           // Lone betrayer: 5 - floor(k/2), min 0
@@ -430,10 +448,9 @@ export default class BetrayalRoom implements Party.Server {
           delta = -2;
         }
       } else {
+        // MUTUAL DESTRUCTION: Multiple betrayers all lose
         if (choice === 'B') {
-          // Multi betrayer: max(0, 1 - floor(k/3))
-          const k = player.betrayalStreak;
-          delta = Math.max(0, 1 - Math.floor(k / 3));
+          delta = -1;
         } else {
           delta = -3;
         }

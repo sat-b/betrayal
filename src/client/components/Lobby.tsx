@@ -193,9 +193,9 @@ export function Lobby({ state, playerId, onReady, onStart, onConfigChange }: Lob
           <h3 className="font-semibold mb-2">How to Play</h3>
           <ul className="space-y-1 list-disc list-inside">
             <li>Each round, choose to Cooperate or Betray</li>
-            <li>If everyone cooperates: +2 points each</li>
-            <li>Lone betrayer gets +5, cooperators get -2</li>
-            <li>Multiple betrayers: +1 each, cooperators get -3</li>
+            <li>Everyone cooperates: +2, +3, +4... (streak bonus!)</li>
+            <li>Lone betrayer: +5 (less with streak), others: -2</li>
+            <li>Multiple betray: <span className="text-red-400">-1 each!</span> Cooperators: -3</li>
           </ul>
         </div>
       </div>

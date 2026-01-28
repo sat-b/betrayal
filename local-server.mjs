@@ -64,13 +64,24 @@ function computeDeltas(room, choices) {
   const B = Object.values(choices).filter(c => c === 'B').length;
   const deltas = {};
 
+  // Calculate cooperation streak from history (for scaling bonus)
+  let coopStreak = 0;
+  for (let i = room.history.length - 1; i >= 0; i--) {
+    if (room.history[i].betrayerCount === 0) {
+      coopStreak++;
+    } else {
+      break;
+    }
+  }
+
   for (const [playerId, choice] of Object.entries(choices)) {
     const player = room.players[playerId];
     let delta = 0;
 
     // Base scoring with betrayal tax
     if (B === 0) {
-      delta = 2;
+      // Cooperation scaling: +2, +3, +4, +5... (capped at +6)
+      delta = Math.min(6, 2 + coopStreak);
     } else if (B === 1) {
       if (choice === 'B') {
         // Lone betrayer: 5 - floor(k/2), min 0
@@ -80,10 +91,9 @@ function computeDeltas(room, choices) {
         delta = -2;
       }
     } else {
+      // MUTUAL DESTRUCTION: Multiple betrayers all lose
       if (choice === 'B') {
-        // Multi betrayer: max(0, 1 - floor(k/3))
-        const k = player.betrayalStreak || 0;
-        delta = Math.max(0, 1 - Math.floor(k / 3));
+        delta = -1;
       } else {
         delta = -3;
       }
@@ -233,11 +243,18 @@ function endRound(room) {
   };
   room.history.push(roundHistory);
 
+  // Collect betrayal streaks to send to clients
+  const streaks = {};
+  for (const [playerId, player] of Object.entries(room.players)) {
+    streaks[playerId] = player.betrayalStreak || 0;
+  }
+
   broadcast(room, {
     type: 'round-reveal',
     choices,
     deltas,
     scores,
+    streaks,
     history: roundHistory,
   });
 
