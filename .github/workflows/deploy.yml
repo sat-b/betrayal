@@ -1,0 +1,24 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy-partykit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Deploy to PartyKit
+        run: npx partykit deploy
+        env:
+          PARTYKIT_TOKEN: ${{ secrets.PARTYKIT_TOKEN }}
