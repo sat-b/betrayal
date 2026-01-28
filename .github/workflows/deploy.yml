@@ -22,4 +22,5 @@ jobs:
       - name: Deploy to PartyKit
         run: npx partykit deploy
         env:
+          PARTYKIT_LOGIN: sat-b
           PARTYKIT_TOKEN: ${{ secrets.PARTYKIT_TOKEN }}
