@@ -146,8 +146,24 @@ export default class BetrayalRoom implements Party.Server {
       return;
     }
 
-    const playerCount = Object.keys(this.state.players).length;
-    if (playerCount >= 5) {
+    // Clean up disconnected players if in lobby phase
+    if (this.state.phase === 'LOBBY') {
+      const disconnectedIds = Object.entries(this.state.players)
+        .filter(([_, p]) => !p.connected)
+        .map(([id]) => id);
+
+      for (const id of disconnectedIds) {
+        delete this.state.players[id];
+      }
+
+      // Reset host if old host was removed
+      if (!this.state.players[this.state.hostId]) {
+        this.state.hostId = '';
+      }
+    }
+
+    const connectedCount = Object.values(this.state.players).filter(p => p.connected).length;
+    if (connectedCount >= 5) {
       conn.send(JSON.stringify({ type: 'error', message: 'Room is full' }));
       return;
     }
@@ -166,11 +182,11 @@ export default class BetrayalRoom implements Party.Server {
         ready: false,
         connected: true,
       };
+    }
 
-      // First player becomes host
-      if (!this.state.hostId) {
-        this.state.hostId = conn.id;
-      }
+    // Assign host if none
+    if (!this.state.hostId) {
+      this.state.hostId = conn.id;
     }
 
     this.broadcast({ type: 'player-joined', player: this.state.players[conn.id] });
