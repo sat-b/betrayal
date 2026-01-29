@@ -39,7 +39,7 @@ export default function App() {
   const voiceChat = useVoiceChat({
     socket,
     playerId,
-    playerIds: state ? Object.keys(state.players) : [],
+    playerIds: state?.players ? Object.keys(state.players) : [],
     enabled: state?.phase === 'ROUND' || state?.phase === 'REVEAL',
   });
 

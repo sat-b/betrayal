@@ -35,9 +35,9 @@ export function BetrayalHistory({ history, players, maxRounds = 5 }: BetrayalHis
                       px-2 py-0.5 rounded text-xs
                       ${choice === 'C' ? 'bg-cooperate/20 text-cooperate' : 'bg-betray/20 text-betray'}
                     `}
-                    title={players[playerId]?.name}
+                    title={players?.[playerId]?.name}
                   >
-                    {players[playerId]?.name.slice(0, 3) || '???'}
+                    {players?.[playerId]?.name?.slice(0, 3) || '???'}
                   </span>
                 ))}
               </div>

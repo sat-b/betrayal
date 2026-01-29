@@ -38,7 +38,7 @@ export function PlayerList({
   results,
   showFuzzy = false,
 }: PlayerListProps) {
-  const sortedPlayers = Object.values(players).sort((a, b) => b.score - a.score);
+  const sortedPlayers = Object.values(players || {}).sort((a, b) => b.score - a.score);
 
   return (
     <div className="space-y-2">

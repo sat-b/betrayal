@@ -97,14 +97,14 @@ export function usePartySocket({ roomCode, onMessage }: UsePartySocketOptions) {
             ...prev,
             phase: 'REVEAL',
             history: [...prev.history, message.history],
-            players: message.players,
+            players: message.players ?? prev.players,
             pot: message.pot,
           } : null);
         } else if (message.type === 'game-end') {
           setState(prev => prev ? {
             ...prev,
             phase: 'FINISHED',
-            players: message.players,
+            players: message.players ?? prev.players,
             awards: message.awards,
           } : null);
         } else if (message.type === 'rematch-started') {

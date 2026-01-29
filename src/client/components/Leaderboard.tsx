@@ -15,7 +15,7 @@ function getImageEmoji(image: number): string {
 }
 
 export function Leaderboard({ players, currentPlayerId }: LeaderboardProps) {
-  const sorted = Object.values(players).sort((a, b) => b.score - a.score);
+  const sorted = Object.values(players || {}).sort((a, b) => b.score - a.score);
 
   return (
     <div className="bg-slate-800 rounded-xl p-4">
