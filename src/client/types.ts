@@ -4,17 +4,16 @@ export type Phase = 'LOBBY' | 'ROUND' | 'REVEAL' | 'FINISHED' | 'PAUSED';
 export interface GameConfig {
   timerSeconds: number;
   totalRounds: number;
-  streakBonus: boolean;
-  revengeBonus: boolean;
 }
 
 export interface Player {
   id: string;
   name: string;
-  score: number;
+  score: number;      // Win condition
+  stack: number;      // Trust stack (grows with cooperation)
+  image: number;      // Table image: -5 (saint) to +5 (snake)
   ready: boolean;
   connected: boolean;
-  betrayalStreak: number;
 }
 
 export interface RoundChoice {
@@ -22,15 +21,30 @@ export interface RoundChoice {
   lockedAt: number;
 }
 
+export interface RoundResult {
+  playerId: string;
+  choice: Choice;
+  blind: number;        // -1 always
+  stackChange: number;  // +2 if cooperate, 0 if betray
+  potContrib: number;   // +2 if cooperate, 0 if betray
+  stackDrain: number;   // Amount drained by betrayers (if cooperator)
+  loot: number;         // Amount stolen from pot (if betrayer)
+  foldingTax: number;   // +2 if clean round, -1 if called and lost
+  imageChange: number;  // -1 if cooperate, +2 if betray
+  totalDelta: number;   // Net score change
+}
+
 export interface RoundHistory {
   roundIndex: number;
   choices: Record<string, Choice>;
-  deltas: Record<string, number>;
+  results: Record<string, RoundResult>;
+  potBefore: number;
+  potAfter: number;
   betrayerCount: number;
 }
 
 export interface Award {
-  type: 'most-trusted' | 'most-evil' | 'biggest-swing' | 'kingmaker';
+  type: 'master-thief' | 'most-trusted' | 'biggest-heist' | 'snake-charmer';
   playerId: string;
   playerName: string;
   value: number;
@@ -41,6 +55,7 @@ export interface RoomState {
   hostId: string;
   config: GameConfig;
   players: Record<string, Player>;
+  pot: number;          // Shared pot
   phase: Phase;
   roundIndex: number;
   roundStartTime: number;
@@ -67,10 +82,10 @@ export type ServerMessage =
   | { type: 'player-left'; playerId: string }
   | { type: 'player-ready'; playerId: string; ready: boolean }
   | { type: 'config-updated'; config: GameConfig }
-  | { type: 'round-start'; roundIndex: number; startTime: number }
+  | { type: 'round-start'; roundIndex: number; startTime: number; pot: number }
   | { type: 'choice-locked'; playerId: string }
-  | { type: 'round-reveal'; choices: Record<string, Choice>; deltas: Record<string, number>; scores: Record<string, number>; streaks: Record<string, number>; history: RoundHistory }
-  | { type: 'game-end'; scores: Record<string, number>; awards: Award[] }
+  | { type: 'round-reveal'; history: RoundHistory; players: Record<string, Player>; pot: number }
+  | { type: 'game-end'; players: Record<string, Player>; awards: Award[] }
   | { type: 'rematch-started' }
   | { type: 'webrtc-signal'; from: string; signal: RTCSessionDescriptionInit | RTCIceCandidateInit }
   | { type: 'error'; message: string };

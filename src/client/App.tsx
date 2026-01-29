@@ -82,8 +82,8 @@ export default function App() {
       <div className="min-h-screen flex flex-col items-center justify-center p-4">
         <div className="w-full max-w-sm space-y-8">
           <div className="text-center">
-            <h1 className="text-4xl font-bold mb-2">Betrayal Game</h1>
-            <p className="text-slate-400">A game of trust and deception</p>
+            <h1 className="text-4xl font-bold mb-2">🎰 Poker Betrayal</h1>
+            <p className="text-slate-400">Bluff, betray, and steal the pot</p>
           </div>
 
           <div className="space-y-4">

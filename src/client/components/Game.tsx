@@ -26,6 +26,14 @@ interface GameProps {
   };
 }
 
+// Get pot size description
+function getPotSize(pot: number): { label: string; color: string; emoji: string } {
+  if (pot <= 5) return { label: 'Small', color: 'text-slate-400', emoji: '💰' };
+  if (pot <= 15) return { label: 'Growing', color: 'text-yellow-400', emoji: '💰💰' };
+  if (pot <= 30) return { label: 'Large', color: 'text-amber-400', emoji: '💰💰💰' };
+  return { label: 'MASSIVE', color: 'text-red-400', emoji: '🏆💰🏆' };
+}
+
 export function Game({
   state,
   playerId,
@@ -40,11 +48,12 @@ export function Game({
   const isRevealPhase = state.phase === 'REVEAL';
 
   const timerEnd = state.roundStartTime + (state.config.timerSeconds * 1000);
+  const potInfo = getPotSize(state.pot);
 
   // Get the latest round for reveal
   const latestRound: RoundHistory | undefined = state.history[state.history.length - 1];
   const revealedChoices = isRevealPhase ? latestRound?.choices : undefined;
-  const deltas = isRevealPhase ? latestRound?.deltas : undefined;
+  const results = isRevealPhase ? latestRound?.results : undefined;
 
   // Reset choice when new round starts
   useEffect(() => {
@@ -52,6 +61,11 @@ export function Game({
       onResetChoice();
     }
   }, [state.roundIndex, isRoundPhase, onResetChoice]);
+
+  // Calculate total loot this round
+  const totalLoot = results
+    ? Object.values(results).reduce((sum, r) => sum + r.loot, 0)
+    : 0;
 
   return (
     <div className="min-h-screen p-4">
@@ -68,7 +82,13 @@ export function Game({
               {state.roundIndex + 1} / {state.config.totalRounds}
             </div>
           </div>
-          <div className="w-20" /> {/* Spacer */}
+          {/* Pot Display */}
+          <div className="text-right">
+            <div className="text-sm text-slate-400">Pot</div>
+            <div className={`text-xl font-bold ${potInfo.color}`}>
+              {potInfo.emoji} {state.pot}
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -78,6 +98,16 @@ export function Game({
             {isRoundPhase && (
               <div className="bg-slate-800 rounded-2xl p-6 flex flex-col items-center gap-6">
                 <Timer endTime={timerEnd} />
+
+                {/* Pot reminder during round */}
+                <div className={`text-center ${potInfo.color}`}>
+                  <div className="text-sm text-slate-400">Current Pot</div>
+                  <div className="text-3xl font-bold">{potInfo.emoji} {state.pot}</div>
+                  {state.pot >= 15 && (
+                    <div className="text-sm animate-pulse">Tempting...</div>
+                  )}
+                </div>
+
                 <ActionButton
                   choice={currentChoice}
                   onChoose={onChoose}
@@ -94,19 +124,30 @@ export function Game({
                   Round {latestRound.roundIndex + 1} Results
                 </h2>
 
-                <div className="text-center mb-4">
+                <div className="text-center mb-4 space-y-2">
                   {latestRound.betrayerCount === 0 ? (
-                    <div className="text-2xl text-cooperate">
-                      ✨ Everyone Cooperated! ✨
-                    </div>
-                  ) : latestRound.betrayerCount === 1 ? (
-                    <div className="text-2xl text-betray">
-                      🗡️ A Lone Betrayer!
-                    </div>
+                    <>
+                      <div className="text-2xl text-cooperate">
+                        ✨ Everyone Cooperated! ✨
+                      </div>
+                      <div className="text-slate-400">
+                        +2 points each, pot grows to {state.pot}
+                      </div>
+                    </>
                   ) : (
-                    <div className="text-2xl text-amber-400">
-                      ⚔️ {latestRound.betrayerCount} Betrayers!
-                    </div>
+                    <>
+                      <div className="text-2xl text-betray">
+                        {latestRound.betrayerCount === 1 ? '🗡️ Heist!' : `⚔️ ${latestRound.betrayerCount} Thieves!`}
+                      </div>
+                      <div className="text-amber-400">
+                        Pot of {latestRound.potBefore} stolen! 💰
+                      </div>
+                      {totalLoot > 0 && (
+                        <div className="text-sm text-slate-400">
+                          Total looted: {totalLoot} points
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
 
@@ -115,7 +156,8 @@ export function Game({
                   currentPlayerId={playerId}
                   hostId={state.hostId}
                   revealedChoices={revealedChoices}
-                  deltas={deltas}
+                  results={results}
+                  showFuzzy
                 />
               </div>
             )}

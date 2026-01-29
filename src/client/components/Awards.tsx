@@ -4,30 +4,30 @@ interface AwardsProps {
   awards: Award[];
 }
 
-const AWARD_CONFIG = {
-  'most-trusted': {
-    emoji: '🕊️',
-    title: 'Most Trusted',
-    description: 'Highest cooperation score',
-    color: 'text-blue-400',
-  },
-  'most-evil': {
-    emoji: '😈',
-    title: 'Most Evil',
-    description: 'Betrayed the most cooperators',
-    color: 'text-red-400',
-  },
-  'biggest-swing': {
-    emoji: '📈',
-    title: 'Biggest Swing',
-    description: 'Largest single-round change',
+const AWARD_CONFIG: Record<string, { emoji: string; title: string; description: string; color: string }> = {
+  'master-thief': {
+    emoji: '🦝',
+    title: 'Master Thief',
+    description: 'Most total loot stolen',
     color: 'text-amber-400',
   },
-  'kingmaker': {
-    emoji: '👑',
-    title: 'Kingmaker',
-    description: 'Most impact on others\' scores',
-    color: 'text-purple-400',
+  'most-trusted': {
+    emoji: '😇',
+    title: 'Most Trusted',
+    description: 'Lowest image (most saintly)',
+    color: 'text-blue-400',
+  },
+  'biggest-heist': {
+    emoji: '💰',
+    title: 'Biggest Heist',
+    description: 'Largest single steal',
+    color: 'text-green-400',
+  },
+  'snake-charmer': {
+    emoji: '🐍',
+    title: 'Snake Charmer',
+    description: 'Highest image (most notorious)',
+    color: 'text-red-400',
   },
 };
 
@@ -36,10 +36,15 @@ export function Awards({ awards }: AwardsProps) {
 
   return (
     <div className="space-y-3">
-      <h3 className="text-lg font-semibold text-center">Awards</h3>
+      <h3 className="text-lg font-semibold text-center">🏆 Awards</h3>
       <div className="grid grid-cols-2 gap-3">
         {awards.map((award) => {
-          const config = AWARD_CONFIG[award.type];
+          const config = AWARD_CONFIG[award.type] || {
+            emoji: '🏅',
+            title: award.type,
+            description: '',
+            color: 'text-slate-400',
+          };
           return (
             <div
               key={award.type}
@@ -54,6 +59,9 @@ export function Awards({ awards }: AwardsProps) {
               </div>
               <div className="text-xs text-slate-500 mt-1">
                 {config.description}
+                {award.value !== undefined && (
+                  <span className="ml-1">({award.value})</span>
+                )}
               </div>
             </div>
           );

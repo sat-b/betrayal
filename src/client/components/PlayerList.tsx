@@ -1,4 +1,4 @@
-import type { Player, RoundChoice, Choice } from '../types';
+import type { Player, RoundChoice, Choice, RoundResult } from '../types';
 
 interface PlayerListProps {
   players: Record<string, Player>;
@@ -7,7 +7,25 @@ interface PlayerListProps {
   showReady?: boolean;
   choices?: Record<string, RoundChoice>;
   revealedChoices?: Record<string, Choice>;
-  deltas?: Record<string, number>;
+  results?: Record<string, RoundResult>;
+  showFuzzy?: boolean; // Show fuzzy values for opponents
+}
+
+// Convert image (-5 to +5) to emoji representation
+function getImageEmoji(image: number): string {
+  if (image <= -4) return '😇'; // Saint
+  if (image <= -2) return '😊'; // Trusted
+  if (image <= 1) return '😐';  // Neutral
+  if (image <= 3) return '😏';  // Suspicious
+  return '🐍';                   // Snake
+}
+
+// Get stack level description
+function getStackLevel(stack: number): { label: string; color: string } {
+  if (stack <= 5) return { label: 'Low', color: 'text-red-400' };
+  if (stack <= 12) return { label: 'Med', color: 'text-yellow-400' };
+  if (stack <= 20) return { label: 'High', color: 'text-green-400' };
+  return { label: 'Huge', color: 'text-emerald-400' };
 }
 
 export function PlayerList({
@@ -17,7 +35,8 @@ export function PlayerList({
   showReady = false,
   choices,
   revealedChoices,
-  deltas,
+  results,
+  showFuzzy = false,
 }: PlayerListProps) {
   const sortedPlayers = Object.values(players).sort((a, b) => b.score - a.score);
 
@@ -28,7 +47,8 @@ export function PlayerList({
         const isHost = player.id === hostId;
         const hasLocked = choices?.[player.id];
         const revealed = revealedChoices?.[player.id];
-        const delta = deltas?.[player.id];
+        const result = results?.[player.id];
+        const stackInfo = getStackLevel(player.stack);
 
         return (
           <div
@@ -48,15 +68,20 @@ export function PlayerList({
                   <span className="font-medium">{player.name}</span>
                   {isYou && <span className="text-xs text-blue-400">(You)</span>}
                   {isHost && <span className="text-xs text-amber-400">👑</span>}
-                  {player.betrayalStreak > 0 && (
-                    <span className="text-xs text-red-400 flex items-center gap-0.5" title={`Betrayal streak: ${player.betrayalStreak}`}>
-                      🔥{player.betrayalStreak}
-                    </span>
-                  )}
                 </div>
                 {showReady && (
                   <div className={`text-xs ${player.ready ? 'text-green-400' : 'text-slate-500'}`}>
                     {player.ready ? '✓ Ready' : 'Not ready'}
+                  </div>
+                )}
+                {!showReady && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span title={`Image: ${player.image}`}>
+                      {getImageEmoji(player.image)}
+                    </span>
+                    <span className={stackInfo.color} title={`Stack: ${player.stack}`}>
+                      {isYou || !showFuzzy ? `📦${player.stack}` : `📦${stackInfo.label}`}
+                    </span>
                   </div>
                 )}
               </div>
@@ -79,14 +104,15 @@ export function PlayerList({
               )}
 
               <div className="flex items-center gap-2 min-w-[80px] justify-end">
-                {delta !== undefined && (
+                {result && (
                   <span
                     className={`
                       text-sm font-medium
-                      ${delta > 0 ? 'text-green-400' : delta < 0 ? 'text-red-400' : 'text-slate-400'}
+                      ${result.totalDelta > 0 ? 'text-green-400' : result.totalDelta < 0 ? 'text-red-400' : 'text-slate-400'}
                     `}
                   >
-                    {delta > 0 ? '+' : ''}{delta}
+                    {result.totalDelta > 0 ? '+' : ''}{result.totalDelta}
+                    {result.loot > 0 && <span className="text-amber-400 ml-1">💰</span>}
                   </span>
                 )}
                 <span className="font-bold text-lg tabular-nums">

@@ -18,6 +18,7 @@ export function Lobby({ state, playerId, onReady, onStart, onConfigChange }: Lob
   const canStart = isHost && playerCount >= 2 && allReady;
 
   const [showConfig, setShowConfig] = useState(false);
+  const [showRules, setShowRules] = useState(false);
 
   const copyRoomCode = () => {
     navigator.clipboard.writeText(state.roomCode);
@@ -28,7 +29,7 @@ export function Lobby({ state, playerId, onReady, onStart, onConfigChange }: Lob
       <div className="w-full max-w-md space-y-6">
         {/* Header */}
         <div className="text-center">
-          <h1 className="text-3xl font-bold mb-2">Betrayal Game</h1>
+          <h1 className="text-3xl font-bold mb-2">🎰 Poker Betrayal</h1>
           <div className="flex items-center justify-center gap-2">
             <span className="text-slate-400">Room Code:</span>
             <button
@@ -86,48 +87,12 @@ export function Lobby({ state, playerId, onReady, onStart, onConfigChange }: Lob
                   </label>
                   <input
                     type="range"
-                    min={5}
-                    max={50}
+                    min={10}
+                    max={30}
                     value={state.config.totalRounds}
                     onChange={(e) => onConfigChange({ totalRounds: parseInt(e.target.value) })}
                     className="w-full"
                   />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-400">Streak Bonus (+2 for 3+ cooperates)</span>
-                  <button
-                    onClick={() => onConfigChange({ streakBonus: !state.config.streakBonus })}
-                    className={`
-                      w-12 h-6 rounded-full transition-colors relative
-                      ${state.config.streakBonus ? 'bg-green-500' : 'bg-slate-600'}
-                    `}
-                  >
-                    <div
-                      className={`
-                        absolute top-1 w-4 h-4 rounded-full bg-white transition-transform
-                        ${state.config.streakBonus ? 'translate-x-7' : 'translate-x-1'}
-                      `}
-                    />
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-400">Revenge Bonus (+1 per revenge)</span>
-                  <button
-                    onClick={() => onConfigChange({ revengeBonus: !state.config.revengeBonus })}
-                    className={`
-                      w-12 h-6 rounded-full transition-colors relative
-                      ${state.config.revengeBonus ? 'bg-green-500' : 'bg-slate-600'}
-                    `}
-                  >
-                    <div
-                      className={`
-                        absolute top-1 w-4 h-4 rounded-full bg-white transition-transform
-                        ${state.config.revengeBonus ? 'translate-x-7' : 'translate-x-1'}
-                      `}
-                    />
-                  </button>
                 </div>
               </div>
             )}
@@ -190,13 +155,45 @@ export function Lobby({ state, playerId, onReady, onStart, onConfigChange }: Lob
 
         {/* Instructions */}
         <div className="bg-slate-800/30 rounded-xl p-4 text-sm text-slate-400">
-          <h3 className="font-semibold mb-2">How to Play</h3>
-          <ul className="space-y-1 list-disc list-inside">
-            <li>Each round, choose to Cooperate or Betray</li>
-            <li>Everyone cooperates: +2, +3, +4... (streak bonus!)</li>
-            <li>Lone betrayer: +5 (less with streak), others: -2</li>
-            <li>Multiple betray: <span className="text-red-400">-1 each!</span> Cooperators: -3</li>
-          </ul>
+          <button
+            onClick={() => setShowRules(!showRules)}
+            className="w-full flex items-center justify-between font-semibold"
+          >
+            <span>How to Play</span>
+            <span>{showRules ? '▲' : '▼'}</span>
+          </button>
+
+          {showRules && (
+            <div className="mt-3 space-y-3">
+              <div>
+                <h4 className="text-white font-medium">🎯 Goal</h4>
+                <p>Highest score wins. Balance trust and betrayal like poker!</p>
+              </div>
+
+              <div>
+                <h4 className="text-white font-medium">💰 Every Round</h4>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>Everyone pays <span className="text-red-400">-1 blind</span></li>
+                  <li>Cooperate: Build your stack (+2) & grow the pot</li>
+                  <li>Betray: Steal the pot (split by image)</li>
+                </ul>
+              </div>
+
+              <div>
+                <h4 className="text-white font-medium">🎭 Image System</h4>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>😇 Saints steal BIG when they betray</li>
+                  <li>🐍 Snakes get crumbs (bad reputation)</li>
+                  <li>Cooperate = improve image, Betray = tank it</li>
+                </ul>
+              </div>
+
+              <div>
+                <h4 className="text-white font-medium">⚡ Key Insight</h4>
+                <p className="text-amber-400">Time your betrayal! Wait for a fat pot and good image, then strike.</p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

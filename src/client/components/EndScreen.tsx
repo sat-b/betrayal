@@ -7,6 +7,15 @@ interface EndScreenProps {
   onRematch: () => void;
 }
 
+// Convert image to emoji
+function getImageEmoji(image: number): string {
+  if (image <= -4) return '😇';
+  if (image <= -2) return '😊';
+  if (image <= 1) return '😐';
+  if (image <= 3) return '😏';
+  return '🐍';
+}
+
 export function EndScreen({ state, playerId, onRematch }: EndScreenProps) {
   const sortedPlayers = Object.values(state.players).sort((a, b) => b.score - a.score);
   const isHost = playerId === state.hostId;
@@ -19,6 +28,11 @@ export function EndScreen({ state, playerId, onRematch }: EndScreenProps) {
     if (index === 2) return { emoji: '🥉', class: 'text-amber-600' };
     return { emoji: `#${index + 1}`, class: 'text-slate-500' };
   };
+
+  // Calculate total heist amount
+  const totalHeisted = state.history.reduce((sum, r) => {
+    return sum + Object.values(r.results || {}).reduce((s, res) => s + res.loot, 0);
+  }, 0);
 
   return (
     <div className="min-h-screen p-4 flex flex-col items-center justify-center">
@@ -55,10 +69,16 @@ export function EndScreen({ state, playerId, onRematch }: EndScreenProps) {
                 >
                   <div className="flex items-center gap-3">
                     <span className={`text-2xl ${rank.class}`}>{rank.emoji}</span>
-                    <span className="font-medium">
-                      {player.name}
-                      {isYou && <span className="text-blue-400 ml-1">(You)</span>}
-                    </span>
+                    <div>
+                      <div className="font-medium">
+                        {player.name}
+                        {isYou && <span className="text-blue-400 ml-1">(You)</span>}
+                      </div>
+                      <div className="text-xs text-slate-400 flex items-center gap-2">
+                        <span>{getImageEmoji(player.image)} Final image: {player.image}</span>
+                        <span>📦 Stack: {player.stack}</span>
+                      </div>
+                    </div>
                   </div>
                   <span className="text-2xl font-bold tabular-nums">{player.score}</span>
                 </div>
@@ -83,13 +103,13 @@ export function EndScreen({ state, playerId, onRematch }: EndScreenProps) {
               <div className="text-2xl font-bold">
                 {state.history.filter(r => r.betrayerCount === 0).length}
               </div>
-              <div className="text-slate-400">All Cooperated</div>
+              <div className="text-slate-400">Clean Rounds</div>
             </div>
             <div>
-              <div className="text-2xl font-bold">
-                {state.history.reduce((sum, r) => sum + r.betrayerCount, 0)}
+              <div className="text-2xl font-bold text-amber-400">
+                💰{totalHeisted}
               </div>
-              <div className="text-slate-400">Total Betrayals</div>
+              <div className="text-slate-400">Total Heisted</div>
             </div>
           </div>
         </div>

@@ -19,7 +19,6 @@ export function usePartySocket({ roomCode, onMessage }: UsePartySocketOptions) {
   useEffect(() => {
     if (!roomCode) return;
 
-    // Use plain WebSocket for local dev, PartySocket URL format for production
     const isLocal = PARTYKIT_HOST.includes('localhost');
     const protocol = isLocal ? 'ws' : 'wss';
     const wsUrl = `${protocol}://${PARTYKIT_HOST}/parties/main/${roomCode.toUpperCase()}`;
@@ -82,6 +81,7 @@ export function usePartySocket({ roomCode, onMessage }: UsePartySocketOptions) {
             phase: 'ROUND',
             roundIndex: message.roundIndex,
             roundStartTime: message.startTime,
+            pot: message.pot,
             choices: {},
           } : null);
         } else if (message.type === 'choice-locked') {
@@ -89,7 +89,7 @@ export function usePartySocket({ roomCode, onMessage }: UsePartySocketOptions) {
             ...prev,
             choices: {
               ...prev.choices,
-              [message.playerId]: { choice: 'C', lockedAt: Date.now() } // We don't know actual choice yet
+              [message.playerId]: { choice: 'C', lockedAt: Date.now() }
             }
           } : null);
         } else if (message.type === 'round-reveal') {
@@ -97,28 +97,15 @@ export function usePartySocket({ roomCode, onMessage }: UsePartySocketOptions) {
             ...prev,
             phase: 'REVEAL',
             history: [...prev.history, message.history],
-            players: Object.fromEntries(
-              Object.entries(prev.players).map(([id, p]) => [
-                id,
-                {
-                  ...p,
-                  score: message.scores[id] ?? p.score,
-                  betrayalStreak: message.streaks?.[id] ?? p.betrayalStreak
-                }
-              ])
-            ),
+            players: message.players,
+            pot: message.pot,
           } : null);
         } else if (message.type === 'game-end') {
           setState(prev => prev ? {
             ...prev,
             phase: 'FINISHED',
+            players: message.players,
             awards: message.awards,
-            players: Object.fromEntries(
-              Object.entries(prev.players).map(([id, p]) => [
-                id,
-                { ...p, score: message.scores[id] ?? p.score }
-              ])
-            ),
           } : null);
         } else if (message.type === 'rematch-started') {
           setState(prev => prev ? {
@@ -127,11 +114,12 @@ export function usePartySocket({ roomCode, onMessage }: UsePartySocketOptions) {
             roundIndex: 0,
             history: [],
             choices: {},
+            pot: 0,
             awards: undefined,
             players: Object.fromEntries(
               Object.entries(prev.players).map(([id, p]) => [
                 id,
-                { ...p, score: 0, ready: false, betrayalStreak: 0 }
+                { ...p, score: 0, stack: 10, image: 0, ready: false }
               ])
             ),
           } : null);

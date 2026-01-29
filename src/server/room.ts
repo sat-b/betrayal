@@ -6,17 +6,16 @@ type Phase = 'LOBBY' | 'ROUND' | 'REVEAL' | 'FINISHED' | 'PAUSED';
 interface GameConfig {
   timerSeconds: number;
   totalRounds: number;
-  streakBonus: boolean;
-  revengeBonus: boolean;
 }
 
 interface Player {
   id: string;
   name: string;
-  score: number;
+  score: number;      // Win condition
+  stack: number;      // Trust stack (grows with cooperation)
+  image: number;      // Table image: -5 (saint) to +5 (snake)
   ready: boolean;
   connected: boolean;
-  betrayalStreak: number;
 }
 
 interface RoundChoice {
@@ -24,15 +23,30 @@ interface RoundChoice {
   lockedAt: number;
 }
 
+interface RoundResult {
+  playerId: string;
+  choice: Choice;
+  blind: number;
+  stackChange: number;
+  potContrib: number;
+  stackDrain: number;
+  loot: number;
+  foldingTax: number;
+  imageChange: number;
+  totalDelta: number;
+}
+
 interface RoundHistory {
   roundIndex: number;
   choices: Record<string, Choice>;
-  deltas: Record<string, number>;
+  results: Record<string, RoundResult>;
+  potBefore: number;
+  potAfter: number;
   betrayerCount: number;
 }
 
 interface Award {
-  type: 'most-trusted' | 'most-evil' | 'biggest-swing' | 'kingmaker';
+  type: 'master-thief' | 'most-trusted' | 'biggest-heist' | 'snake-charmer';
   playerId: string;
   playerName: string;
   value: number;
@@ -43,6 +57,7 @@ interface RoomState {
   hostId: string;
   config: GameConfig;
   players: Record<string, Player>;
+  pot: number;
   phase: Phase;
   roundIndex: number;
   roundStartTime: number;
@@ -53,9 +68,7 @@ interface RoomState {
 
 const DEFAULT_CONFIG: GameConfig = {
   timerSeconds: 10,
-  totalRounds: 20,
-  streakBonus: true,
-  revengeBonus: true,
+  totalRounds: 15,
 };
 
 export default class BetrayalRoom implements Party.Server {
@@ -70,6 +83,7 @@ export default class BetrayalRoom implements Party.Server {
       hostId: '',
       config: { ...DEFAULT_CONFIG },
       players: {},
+      pot: 0,
       phase: 'LOBBY',
       roundIndex: 0,
       roundStartTime: 0,
@@ -80,7 +94,6 @@ export default class BetrayalRoom implements Party.Server {
 
   onConnect(conn: Party.Connection) {
     console.log(`[Room ${this.state.roomCode}] Connection: ${conn.id}, existing players: ${Object.keys(this.state.players).join(', ') || 'none'}`);
-    // Send current state to new connection
     conn.send(JSON.stringify({
       type: 'state',
       state: this.state,
@@ -94,7 +107,6 @@ export default class BetrayalRoom implements Party.Server {
       player.connected = false;
       this.broadcast({ type: 'player-left', playerId: conn.id });
 
-      // If host left, assign new host
       if (conn.id === this.state.hostId) {
         const connectedPlayers = Object.values(this.state.players).filter(p => p.connected);
         if (connectedPlayers.length > 0) {
@@ -149,7 +161,6 @@ export default class BetrayalRoom implements Party.Server {
       return;
     }
 
-    // Clean up disconnected players if in lobby phase
     if (this.state.phase === 'LOBBY') {
       const disconnectedIds = Object.entries(this.state.players)
         .filter(([_, p]) => !p.connected)
@@ -159,7 +170,6 @@ export default class BetrayalRoom implements Party.Server {
         delete this.state.players[id];
       }
 
-      // Reset host if old host was removed
       if (!this.state.players[this.state.hostId]) {
         this.state.hostId = '';
       }
@@ -171,24 +181,22 @@ export default class BetrayalRoom implements Party.Server {
       return;
     }
 
-    // Check if player is reconnecting
     const existingPlayer = this.state.players[conn.id];
     if (existingPlayer) {
       existingPlayer.connected = true;
       existingPlayer.name = name;
     } else {
-      // New player
       this.state.players[conn.id] = {
         id: conn.id,
         name,
         score: 0,
+        stack: 10,    // Starting trust stack
+        image: 0,     // Neutral image
         ready: false,
         connected: true,
-        betrayalStreak: 0,
       };
     }
 
-    // Assign host if none
     if (!this.state.hostId) {
       this.state.hostId = conn.id;
     }
@@ -213,7 +221,7 @@ export default class BetrayalRoom implements Party.Server {
       ...this.state.config,
       ...config,
       timerSeconds: Math.min(20, Math.max(5, config.timerSeconds ?? this.state.config.timerSeconds)),
-      totalRounds: Math.min(50, Math.max(5, config.totalRounds ?? this.state.config.totalRounds)),
+      totalRounds: Math.min(30, Math.max(10, config.totalRounds ?? this.state.config.totalRounds)),
     };
 
     this.broadcast({ type: 'config-updated', config: this.state.config });
@@ -234,6 +242,14 @@ export default class BetrayalRoom implements Party.Server {
       return;
     }
 
+    // Reset game state
+    this.state.pot = 0;
+    for (const player of Object.values(this.state.players)) {
+      player.score = 0;
+      player.stack = 10;
+      player.image = 0;
+    }
+
     this.startRound();
   }
 
@@ -241,7 +257,6 @@ export default class BetrayalRoom implements Party.Server {
     if (this.state.phase !== 'ROUND') return;
     if (!this.state.players[conn.id]) return;
 
-    // Update choice (can change until locked)
     const existing = this.state.choices[conn.id];
     if (!existing || existing.lockedAt === 0) {
       this.state.choices[conn.id] = { choice, lockedAt: 0 };
@@ -257,7 +272,6 @@ export default class BetrayalRoom implements Party.Server {
     choice.lockedAt = Date.now();
     this.broadcast({ type: 'choice-locked', playerId: conn.id });
 
-    // Check if all players have locked
     this.checkAllLocked();
   }
 
@@ -265,12 +279,13 @@ export default class BetrayalRoom implements Party.Server {
     if (conn.id !== this.state.hostId) return;
     if (this.state.phase !== 'FINISHED') return;
 
-    // Reset game state
     for (const player of Object.values(this.state.players)) {
       player.score = 0;
+      player.stack = 10;
+      player.image = 0;
       player.ready = false;
-      player.betrayalStreak = 0;
     }
+    this.state.pot = 0;
     this.state.phase = 'LOBBY';
     this.state.roundIndex = 0;
     this.state.history = [];
@@ -297,7 +312,6 @@ export default class BetrayalRoom implements Party.Server {
     this.state.roundStartTime = Date.now();
     this.state.choices = {};
 
-    // Default all players to cooperate (can change)
     for (const playerId of Object.keys(this.state.players)) {
       this.state.choices[playerId] = { choice: 'C', lockedAt: 0 };
     }
@@ -306,9 +320,9 @@ export default class BetrayalRoom implements Party.Server {
       type: 'round-start',
       roundIndex: this.state.roundIndex,
       startTime: this.state.roundStartTime,
+      pot: this.state.pot,
     });
 
-    // Set timer to end round
     this.roundTimer = setTimeout(() => {
       this.endRound();
     }, this.state.config.timerSeconds * 1000);
@@ -335,53 +349,149 @@ export default class BetrayalRoom implements Party.Server {
 
     this.state.phase = 'REVEAL';
 
-    // Extract just the choices
+    // Extract choices
     const choices: Record<string, Choice> = {};
     for (const [playerId, data] of Object.entries(this.state.choices)) {
       choices[playerId] = data.choice;
     }
 
-    // Calculate deltas
-    const deltas = this.computeDeltas(choices);
-
-    // Update scores
-    const scores: Record<string, number> = {};
-    for (const [playerId, delta] of Object.entries(deltas)) {
-      const player = this.state.players[playerId];
-      if (player) {
-        player.score += delta;
-        scores[playerId] = player.score;
-      }
-    }
+    // Resolve the round with poker mechanics
+    const { results, potBefore, potAfter } = this.resolveRound(choices);
 
     // Record history
     const roundHistory: RoundHistory = {
       roundIndex: this.state.roundIndex,
       choices,
-      deltas,
+      results,
+      potBefore,
+      potAfter,
       betrayerCount: Object.values(choices).filter(c => c === 'B').length,
     };
     this.state.history.push(roundHistory);
 
-    // Collect betrayal streaks to send to clients
-    const streaks: Record<string, number> = {};
-    for (const [playerId, player] of Object.entries(this.state.players)) {
-      streaks[playerId] = player.betrayalStreak;
-    }
-
+    // Send updated state to all players
     this.broadcast({
       type: 'round-reveal',
-      choices,
-      deltas,
-      scores,
-      streaks,
       history: roundHistory,
+      players: this.state.players,
+      pot: this.state.pot,
     });
 
-    // Start reveal timer
     this.revealTimer = setTimeout(() => {
       this.afterReveal();
-    }, 4000);
+    }, 5000);
+  }
+
+  resolveRound(choices: Record<string, Choice>): { results: Record<string, RoundResult>; potBefore: number; potAfter: number } {
+    const results: Record<string, RoundResult> = {};
+    const potBefore = this.state.pot;
+
+    const cooperators = Object.entries(choices).filter(([_, c]) => c === 'C').map(([id]) => id);
+    const betrayers = Object.entries(choices).filter(([_, c]) => c === 'B').map(([id]) => id);
+    const B = betrayers.length;
+
+    // Initialize results
+    for (const [playerId, choice] of Object.entries(choices)) {
+      results[playerId] = {
+        playerId,
+        choice,
+        blind: -1,
+        stackChange: 0,
+        potContrib: 0,
+        stackDrain: 0,
+        loot: 0,
+        foldingTax: 0,
+        imageChange: 0,
+        totalDelta: 0,
+      };
+    }
+
+    // Step 1: Everyone pays blind
+    for (const playerId of Object.keys(choices)) {
+      this.state.players[playerId].score -= 1;
+    }
+
+    // Step 2: Cooperators invest
+    for (const playerId of cooperators) {
+      const player = this.state.players[playerId];
+      player.stack += 2;
+      this.state.pot += 2;
+      results[playerId].stackChange = 2;
+      results[playerId].potContrib = 2;
+    }
+
+    // Step 3: Betrayers contest the pot
+    if (B > 0) {
+      // First, drain stacks from cooperators
+      let totalDrain = 0;
+      for (const playerId of cooperators) {
+        const player = this.state.players[playerId];
+        const drain = Math.min(2, Math.floor(player.stack * 0.25));
+        player.stack -= drain;
+        totalDrain += drain;
+        results[playerId].stackDrain = drain;
+        results[playerId].stackChange -= drain; // Adjust stack change
+      }
+
+      // Add drained amount to pot before splitting
+      this.state.pot += totalDrain;
+
+      // Calculate weights for betrayers (lower image = more trusted = higher weight)
+      const weights: Record<string, number> = {};
+      let totalWeight = 0;
+      for (const playerId of betrayers) {
+        const player = this.state.players[playerId];
+        // Cap at 8 to prevent saints from taking everything
+        const weight = Math.min(8, Math.max(1, 6 - player.image));
+        weights[playerId] = weight;
+        totalWeight += weight;
+      }
+
+      // Distribute pot to betrayers
+      const potToDistribute = this.state.pot;
+      for (const playerId of betrayers) {
+        const loot = Math.floor(potToDistribute * weights[playerId] / totalWeight);
+        this.state.players[playerId].score += loot;
+        results[playerId].loot = loot;
+      }
+
+      // Pot is emptied
+      this.state.pot = 0;
+
+      // Cooperators suffer "called and lost" penalty
+      for (const playerId of cooperators) {
+        this.state.players[playerId].score -= 1;
+        results[playerId].foldingTax = -1;
+      }
+    } else {
+      // Clean round: cooperators get bonus
+      for (const playerId of cooperators) {
+        this.state.players[playerId].score += 2;
+        results[playerId].foldingTax = 2;
+      }
+    }
+
+    // Step 4: Update image
+    for (const [playerId, choice] of Object.entries(choices)) {
+      const player = this.state.players[playerId];
+      if (choice === 'C') {
+        const oldImage = player.image;
+        player.image = Math.max(-5, player.image - 1);
+        results[playerId].imageChange = player.image - oldImage;
+      } else {
+        const oldImage = player.image;
+        player.image = Math.min(5, player.image + 2);
+        results[playerId].imageChange = player.image - oldImage;
+      }
+    }
+
+    // Calculate total deltas
+    for (const playerId of Object.keys(choices)) {
+      const r = results[playerId];
+      r.totalDelta = r.blind + r.loot + r.foldingTax;
+    }
+
+    return { results, potBefore, potAfter: this.state.pot };
   }
 
   afterReveal() {
@@ -401,111 +511,13 @@ export default class BetrayalRoom implements Party.Server {
 
   endGame() {
     this.state.phase = 'FINISHED';
-
-    // Calculate awards
     this.state.awards = this.computeAwards();
-
-    const scores: Record<string, number> = {};
-    for (const player of Object.values(this.state.players)) {
-      scores[player.id] = player.score;
-    }
 
     this.broadcast({
       type: 'game-end',
-      scores,
+      players: this.state.players,
       awards: this.state.awards,
     });
-  }
-
-  computeDeltas(choices: Record<string, Choice>): Record<string, number> {
-    const B = Object.values(choices).filter(c => c === 'B').length;
-    const deltas: Record<string, number> = {};
-
-    // Calculate cooperation streak from history (for scaling bonus)
-    let coopStreak = 0;
-    for (let i = this.state.history.length - 1; i >= 0; i--) {
-      if (this.state.history[i].betrayerCount === 0) {
-        coopStreak++;
-      } else {
-        break;
-      }
-    }
-
-    for (const [playerId, choice] of Object.entries(choices)) {
-      const player = this.state.players[playerId];
-      let delta = 0;
-
-      // Base scoring with betrayal tax
-      if (B === 0) {
-        // Cooperation scaling: +2, +3, +4, +5... (capped at +6)
-        delta = Math.min(6, 2 + coopStreak);
-      } else if (B === 1) {
-        if (choice === 'B') {
-          // Lone betrayer: 5 - floor(k/2), min 0
-          const k = player.betrayalStreak;
-          delta = Math.max(0, 5 - Math.floor(k / 2));
-        } else {
-          delta = -2;
-        }
-      } else {
-        // MUTUAL DESTRUCTION: Multiple betrayers all lose
-        if (choice === 'B') {
-          delta = -1;
-        } else {
-          delta = -3;
-        }
-      }
-
-      // Update betrayal streak
-      if (choice === 'B') {
-        player.betrayalStreak++;
-      } else {
-        player.betrayalStreak = 0;
-      }
-
-      // Streak bonus (cooperation streak)
-      if (this.state.config.streakBonus && choice === 'C' && B === 0) {
-        if (this.hasCooperatedStreak(playerId, 3)) {
-          delta += 2;
-        }
-      }
-
-      // Revenge bonus
-      if (this.state.config.revengeBonus && choice === 'B') {
-        delta += this.countRevengeTargets(playerId, choices);
-      }
-
-      deltas[playerId] = delta;
-    }
-
-    return deltas;
-  }
-
-  hasCooperatedStreak(playerId: string, streakLength: number): boolean {
-    if (this.state.history.length < streakLength) return false;
-
-    const recent = this.state.history.slice(-streakLength);
-    return recent.every(round => round.choices[playerId] === 'C');
-  }
-
-  countRevengeTargets(playerId: string, currentChoices: Record<string, Choice>): number {
-    if (this.state.history.length === 0) return 0;
-
-    const lastRound = this.state.history[this.state.history.length - 1];
-    let count = 0;
-
-    for (const [otherId, otherChoice] of Object.entries(currentChoices)) {
-      if (otherId === playerId) continue;
-
-      const theyBetrayedUs = lastRound.choices[otherId] === 'B';
-      const theyCoopNow = otherChoice === 'C';
-
-      if (theyBetrayedUs && theyCoopNow) {
-        count++;
-      }
-    }
-
-    return count;
   }
 
   computeAwards(): Award[] {
@@ -514,120 +526,76 @@ export default class BetrayalRoom implements Party.Server {
 
     if (playerIds.length === 0 || this.state.history.length === 0) return awards;
 
-    // Most Trusted
-    let mostTrusted = { playerId: '', score: -Infinity };
+    // Master Thief: Most total loot stolen
+    let masterThief = { playerId: '', value: 0 };
     for (const playerId of playerIds) {
-      let coopCount = 0;
-      let loneBetrayCount = 0;
-
+      let totalLoot = 0;
       for (const round of this.state.history) {
-        if (round.choices[playerId] === 'C') {
-          coopCount++;
-        } else if (round.betrayerCount === 1 && round.choices[playerId] === 'B') {
-          loneBetrayCount++;
-        }
+        totalLoot += round.results[playerId]?.loot || 0;
       }
-
-      const trustedScore = (100 * coopCount / this.state.history.length) - (15 * loneBetrayCount);
-      if (trustedScore > mostTrusted.score) {
-        mostTrusted = { playerId, score: trustedScore };
+      if (totalLoot > masterThief.value) {
+        masterThief = { playerId, value: totalLoot };
       }
     }
+    if (masterThief.playerId && masterThief.value > 0) {
+      awards.push({
+        type: 'master-thief',
+        playerId: masterThief.playerId,
+        playerName: this.state.players[masterThief.playerId].name,
+        value: masterThief.value,
+      });
+    }
 
+    // Most Trusted: Lowest final image (most saintly)
+    let mostTrusted = { playerId: '', value: Infinity };
+    for (const playerId of playerIds) {
+      const image = this.state.players[playerId].image;
+      if (image < mostTrusted.value) {
+        mostTrusted = { playerId, value: image };
+      }
+    }
     if (mostTrusted.playerId) {
       awards.push({
         type: 'most-trusted',
         playerId: mostTrusted.playerId,
         playerName: this.state.players[mostTrusted.playerId].name,
-        value: Math.round(mostTrusted.score),
+        value: mostTrusted.value,
       });
     }
 
-    // Most Evil
-    let mostEvil = { playerId: '', score: -Infinity };
+    // Biggest Heist: Single largest loot in one round
+    let biggestHeist = { playerId: '', value: 0 };
     for (const playerId of playerIds) {
-      let evilScore = 0;
-
       for (const round of this.state.history) {
-        if (round.choices[playerId] === 'B') {
-          const coopersInRound = Object.values(round.choices).filter(c => c === 'C').length;
-          evilScore += coopersInRound;
+        const loot = round.results[playerId]?.loot || 0;
+        if (loot > biggestHeist.value) {
+          biggestHeist = { playerId, value: loot };
         }
       }
-
-      if (evilScore > mostEvil.score) {
-        mostEvil = { playerId, score: evilScore };
-      }
     }
-
-    if (mostEvil.playerId && mostEvil.score > 0) {
+    if (biggestHeist.playerId && biggestHeist.value > 0) {
       awards.push({
-        type: 'most-evil',
-        playerId: mostEvil.playerId,
-        playerName: this.state.players[mostEvil.playerId].name,
-        value: mostEvil.score,
+        type: 'biggest-heist',
+        playerId: biggestHeist.playerId,
+        playerName: this.state.players[biggestHeist.playerId].name,
+        value: biggestHeist.value,
       });
     }
 
-    // Biggest Swing
-    let biggestSwing = { playerId: '', value: 0 };
+    // Snake Charmer: Highest final image (most notorious)
+    let snakeCharmer = { playerId: '', value: -Infinity };
     for (const playerId of playerIds) {
-      for (const round of this.state.history) {
-        const delta = Math.abs(round.deltas[playerId] || 0);
-        if (delta > biggestSwing.value) {
-          biggestSwing = { playerId, value: delta };
-        }
+      const image = this.state.players[playerId].image;
+      if (image > snakeCharmer.value) {
+        snakeCharmer = { playerId, value: image };
       }
     }
-
-    if (biggestSwing.playerId) {
+    if (snakeCharmer.playerId && snakeCharmer.value > 0) {
       awards.push({
-        type: 'biggest-swing',
-        playerId: biggestSwing.playerId,
-        playerName: this.state.players[biggestSwing.playerId].name,
-        value: biggestSwing.value,
-      });
-    }
-
-    // Kingmaker
-    let kingmaker = { playerId: '', impact: 0 };
-    for (const playerId of playerIds) {
-      let totalImpact = 0;
-
-      for (const round of this.state.history) {
-        const actualB = round.betrayerCount;
-        const flippedB = round.choices[playerId] === 'C' ? actualB + 1 : actualB - 1;
-
-        for (const otherId of playerIds) {
-          if (otherId === playerId) continue;
-
-          const otherChoice = round.choices[otherId];
-
-          let actualDelta = 0;
-          if (actualB === 0) actualDelta = 2;
-          else if (actualB === 1) actualDelta = otherChoice === 'B' ? 5 : -2;
-          else actualDelta = otherChoice === 'B' ? 1 : -3;
-
-          let flippedDelta = 0;
-          if (flippedB === 0) flippedDelta = 2;
-          else if (flippedB === 1) flippedDelta = otherChoice === 'B' ? 5 : -2;
-          else flippedDelta = otherChoice === 'B' ? 1 : -3;
-
-          totalImpact += Math.abs(flippedDelta - actualDelta);
-        }
-      }
-
-      if (totalImpact > kingmaker.impact) {
-        kingmaker = { playerId, impact: totalImpact };
-      }
-    }
-
-    if (kingmaker.playerId) {
-      awards.push({
-        type: 'kingmaker',
-        playerId: kingmaker.playerId,
-        playerName: this.state.players[kingmaker.playerId].name,
-        value: kingmaker.impact,
+        type: 'snake-charmer',
+        playerId: snakeCharmer.playerId,
+        playerName: this.state.players[snakeCharmer.playerId].name,
+        value: snakeCharmer.value,
       });
     }
 

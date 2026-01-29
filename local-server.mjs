@@ -8,9 +8,7 @@ const rooms = new Map();
 // Default config
 const DEFAULT_CONFIG = {
   timerSeconds: 10,
-  totalRounds: 20,
-  streakBonus: true,
-  revengeBonus: true,
+  totalRounds: 15,
 };
 
 function createRoom(roomCode) {
@@ -19,6 +17,7 @@ function createRoom(roomCode) {
     hostId: '',
     config: { ...DEFAULT_CONFIG },
     players: {},
+    pot: 0,
     phase: 'LOBBY',
     roundIndex: 0,
     roundStartTime: 0,
@@ -47,6 +46,7 @@ function broadcastState(room) {
           hostId: room.hostId,
           config: room.config,
           players: room.players,
+          pot: room.pot,
           phase: room.phase,
           roundIndex: room.roundIndex,
           roundStartTime: room.roundStartTime,
@@ -60,66 +60,115 @@ function broadcastState(room) {
   }
 }
 
-function computeDeltas(room, choices) {
-  const B = Object.values(choices).filter(c => c === 'B').length;
-  const deltas = {};
+function resolveRound(room, choices) {
+  const results = {};
+  const potBefore = room.pot;
 
-  // Calculate cooperation streak from history (for scaling bonus)
-  let coopStreak = 0;
-  for (let i = room.history.length - 1; i >= 0; i--) {
-    if (room.history[i].betrayerCount === 0) {
-      coopStreak++;
-    } else {
-      break;
+  const cooperators = Object.entries(choices).filter(([_, c]) => c === 'C').map(([id]) => id);
+  const betrayers = Object.entries(choices).filter(([_, c]) => c === 'B').map(([id]) => id);
+  const B = betrayers.length;
+
+  // Initialize results
+  for (const [playerId, choice] of Object.entries(choices)) {
+    results[playerId] = {
+      playerId,
+      choice,
+      blind: -1,
+      stackChange: 0,
+      potContrib: 0,
+      stackDrain: 0,
+      loot: 0,
+      foldingTax: 0,
+      imageChange: 0,
+      totalDelta: 0,
+    };
+  }
+
+  // Step 1: Everyone pays blind
+  for (const playerId of Object.keys(choices)) {
+    room.players[playerId].score -= 1;
+  }
+
+  // Step 2: Cooperators invest
+  for (const playerId of cooperators) {
+    const player = room.players[playerId];
+    player.stack += 2;
+    room.pot += 2;
+    results[playerId].stackChange = 2;
+    results[playerId].potContrib = 2;
+  }
+
+  // Step 3: Betrayers contest the pot
+  if (B > 0) {
+    // First, drain stacks from cooperators
+    let totalDrain = 0;
+    for (const playerId of cooperators) {
+      const player = room.players[playerId];
+      const drain = Math.min(2, Math.floor(player.stack * 0.25));
+      player.stack -= drain;
+      totalDrain += drain;
+      results[playerId].stackDrain = drain;
+      results[playerId].stackChange -= drain;
+    }
+
+    // Add drained amount to pot before splitting
+    room.pot += totalDrain;
+
+    // Calculate weights for betrayers
+    const weights = {};
+    let totalWeight = 0;
+    for (const playerId of betrayers) {
+      const player = room.players[playerId];
+      const weight = Math.min(8, Math.max(1, 6 - player.image));
+      weights[playerId] = weight;
+      totalWeight += weight;
+    }
+
+    // Distribute pot to betrayers
+    const potToDistribute = room.pot;
+    for (const playerId of betrayers) {
+      const loot = Math.floor(potToDistribute * weights[playerId] / totalWeight);
+      room.players[playerId].score += loot;
+      results[playerId].loot = loot;
+    }
+
+    // Pot is emptied
+    room.pot = 0;
+
+    // Cooperators suffer "called and lost" penalty
+    for (const playerId of cooperators) {
+      room.players[playerId].score -= 1;
+      results[playerId].foldingTax = -1;
+    }
+  } else {
+    // Clean round: cooperators get bonus
+    for (const playerId of cooperators) {
+      room.players[playerId].score += 2;
+      results[playerId].foldingTax = 2;
     }
   }
 
+  // Step 4: Update image
   for (const [playerId, choice] of Object.entries(choices)) {
     const player = room.players[playerId];
-    let delta = 0;
-
-    // Base scoring with betrayal tax
-    if (B === 0) {
-      // Cooperation scaling: +2, +3, +4, +5... (capped at +6)
-      delta = Math.min(6, 2 + coopStreak);
-    } else if (B === 1) {
-      if (choice === 'B') {
-        // Lone betrayer: 5 - floor(k/2), min 0
-        const k = player.betrayalStreak || 0;
-        delta = Math.max(0, 5 - Math.floor(k / 2));
-      } else {
-        delta = -2;
-      }
+    if (choice === 'C') {
+      const oldImage = player.image;
+      player.image = Math.max(-5, player.image - 1);
+      results[playerId].imageChange = player.image - oldImage;
     } else {
-      // MUTUAL DESTRUCTION: Multiple betrayers all lose
-      if (choice === 'B') {
-        delta = -1;
-      } else {
-        delta = -3;
-      }
+      const oldImage = player.image;
+      player.image = Math.min(5, player.image + 2);
+      results[playerId].imageChange = player.image - oldImage;
     }
-
-    // Update betrayal streak
-    if (choice === 'B') {
-      player.betrayalStreak = (player.betrayalStreak || 0) + 1;
-    } else {
-      player.betrayalStreak = 0;
-    }
-
-    // Streak bonus (cooperation streak)
-    if (room.config.streakBonus && choice === 'C' && B === 0) {
-      const history = room.history;
-      if (history.length >= 3) {
-        const recent = history.slice(-3);
-        if (recent.every(r => r.choices[playerId] === 'C')) {
-          delta += 2;
-        }
-      }
-    }
-
-    deltas[playerId] = delta;
   }
-  return deltas;
+
+  // Calculate total deltas
+  for (const playerId of Object.keys(choices)) {
+    const r = results[playerId];
+    r.totalDelta = r.blind + r.loot + r.foldingTax;
+  }
+
+  return { results, potBefore, potAfter: room.pot };
 }
 
 function computeAwards(room) {
@@ -129,68 +178,77 @@ function computeAwards(room) {
 
   if (playerIds.length === 0 || history.length === 0) return awards;
 
-  // Most Trusted
-  let mostTrusted = { playerId: '', score: -Infinity };
+  // Master Thief
+  let masterThief = { playerId: '', value: 0 };
   for (const playerId of playerIds) {
-    let coopCount = 0;
-    let loneBetrayCount = 0;
+    let totalLoot = 0;
     for (const round of history) {
-      if (round.choices[playerId] === 'C') coopCount++;
-      else if (round.betrayerCount === 1 && round.choices[playerId] === 'B') loneBetrayCount++;
+      totalLoot += round.results[playerId]?.loot || 0;
     }
-    const score = (100 * coopCount / history.length) - (15 * loneBetrayCount);
-    if (score > mostTrusted.score) mostTrusted = { playerId, score };
+    if (totalLoot > masterThief.value) {
+      masterThief = { playerId, value: totalLoot };
+    }
+  }
+  if (masterThief.playerId && masterThief.value > 0) {
+    awards.push({
+      type: 'master-thief',
+      playerId: masterThief.playerId,
+      playerName: room.players[masterThief.playerId].name,
+      value: masterThief.value,
+    });
+  }
+
+  // Most Trusted
+  let mostTrusted = { playerId: '', value: Infinity };
+  for (const playerId of playerIds) {
+    const image = room.players[playerId].image;
+    if (image < mostTrusted.value) {
+      mostTrusted = { playerId, value: image };
+    }
   }
   if (mostTrusted.playerId) {
-    awards.push({ type: 'most-trusted', playerId: mostTrusted.playerId, playerName: room.players[mostTrusted.playerId].name, value: Math.round(mostTrusted.score) });
+    awards.push({
+      type: 'most-trusted',
+      playerId: mostTrusted.playerId,
+      playerName: room.players[mostTrusted.playerId].name,
+      value: mostTrusted.value,
+    });
   }
 
-  // Most Evil
-  let mostEvil = { playerId: '', score: 0 };
+  // Biggest Heist
+  let biggestHeist = { playerId: '', value: 0 };
   for (const playerId of playerIds) {
-    let evilScore = 0;
     for (const round of history) {
-      if (round.choices[playerId] === 'B') {
-        evilScore += Object.values(round.choices).filter(c => c === 'C').length;
+      const loot = round.results[playerId]?.loot || 0;
+      if (loot > biggestHeist.value) {
+        biggestHeist = { playerId, value: loot };
       }
     }
-    if (evilScore > mostEvil.score) mostEvil = { playerId, score: evilScore };
   }
-  if (mostEvil.playerId && mostEvil.score > 0) {
-    awards.push({ type: 'most-evil', playerId: mostEvil.playerId, playerName: room.players[mostEvil.playerId].name, value: mostEvil.score });
-  }
-
-  // Biggest Swing
-  let biggestSwing = { playerId: '', value: 0 };
-  for (const playerId of playerIds) {
-    for (const round of history) {
-      const delta = Math.abs(round.deltas[playerId] || 0);
-      if (delta > biggestSwing.value) biggestSwing = { playerId, value: delta };
-    }
-  }
-  if (biggestSwing.playerId) {
-    awards.push({ type: 'biggest-swing', playerId: biggestSwing.playerId, playerName: room.players[biggestSwing.playerId].name, value: biggestSwing.value });
+  if (biggestHeist.playerId && biggestHeist.value > 0) {
+    awards.push({
+      type: 'biggest-heist',
+      playerId: biggestHeist.playerId,
+      playerName: room.players[biggestHeist.playerId].name,
+      value: biggestHeist.value,
+    });
   }
 
-  // Kingmaker
-  let kingmaker = { playerId: '', impact: 0 };
+  // Snake Charmer
+  let snakeCharmer = { playerId: '', value: -Infinity };
   for (const playerId of playerIds) {
-    let totalImpact = 0;
-    for (const round of history) {
-      const actualB = round.betrayerCount;
-      const flippedB = round.choices[playerId] === 'C' ? actualB + 1 : actualB - 1;
-      for (const otherId of playerIds) {
-        if (otherId === playerId) continue;
-        const otherChoice = round.choices[otherId];
-        let actualDelta = actualB === 0 ? 2 : actualB === 1 ? (otherChoice === 'B' ? 5 : -2) : (otherChoice === 'B' ? 1 : -3);
-        let flippedDelta = flippedB === 0 ? 2 : flippedB === 1 ? (otherChoice === 'B' ? 5 : -2) : (otherChoice === 'B' ? 1 : -3);
-        totalImpact += Math.abs(flippedDelta - actualDelta);
-      }
+    const image = room.players[playerId].image;
+    if (image > snakeCharmer.value) {
+      snakeCharmer = { playerId, value: image };
     }
-    if (totalImpact > kingmaker.impact) kingmaker = { playerId, impact: totalImpact };
   }
-  if (kingmaker.playerId) {
-    awards.push({ type: 'kingmaker', playerId: kingmaker.playerId, playerName: room.players[kingmaker.playerId].name, value: kingmaker.impact });
+  if (snakeCharmer.playerId && snakeCharmer.value > 0) {
+    awards.push({
+      type: 'snake-charmer',
+      playerId: snakeCharmer.playerId,
+      playerName: room.players[snakeCharmer.playerId].name,
+      value: snakeCharmer.value,
+    });
   }
 
   return awards;
@@ -209,6 +267,7 @@ function startRound(room) {
     type: 'round-start',
     roundIndex: room.roundIndex,
     startTime: room.roundStartTime,
+    pot: room.pot,
   });
 
   room.roundTimer = setTimeout(() => endRound(room), room.config.timerSeconds * 1000);
@@ -227,38 +286,26 @@ function endRound(room) {
     choices[playerId] = data.choice;
   }
 
-  const deltas = computeDeltas(room, choices);
-  const scores = {};
-
-  for (const [playerId, delta] of Object.entries(deltas)) {
-    room.players[playerId].score += delta;
-    scores[playerId] = room.players[playerId].score;
-  }
+  const { results, potBefore, potAfter } = resolveRound(room, choices);
 
   const roundHistory = {
     roundIndex: room.roundIndex,
     choices,
-    deltas,
+    results,
+    potBefore,
+    potAfter,
     betrayerCount: Object.values(choices).filter(c => c === 'B').length,
   };
   room.history.push(roundHistory);
 
-  // Collect betrayal streaks to send to clients
-  const streaks = {};
-  for (const [playerId, player] of Object.entries(room.players)) {
-    streaks[playerId] = player.betrayalStreak || 0;
-  }
-
   broadcast(room, {
     type: 'round-reveal',
-    choices,
-    deltas,
-    scores,
-    streaks,
     history: roundHistory,
+    players: room.players,
+    pot: room.pot,
   });
 
-  room.revealTimer = setTimeout(() => afterReveal(room), 4000);
+  room.revealTimer = setTimeout(() => afterReveal(room), 5000);
 }
 
 function afterReveal(room) {
@@ -280,14 +327,9 @@ function endGame(room) {
   room.phase = 'FINISHED';
   room.awards = computeAwards(room);
 
-  const scores = {};
-  for (const player of Object.values(room.players)) {
-    scores[player.id] = player.score;
-  }
-
   broadcast(room, {
     type: 'game-end',
-    scores,
+    players: room.players,
     awards: room.awards,
   });
 }
@@ -307,13 +349,12 @@ function checkAllLocked(room) {
 
 const wss = new WebSocketServer({ port: PORT });
 
-console.log(`🎈 Local WebSocket server running on ws://localhost:${PORT}`);
+console.log(`🎰 Poker Betrayal server running on ws://localhost:${PORT}`);
 
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const pathParts = url.pathname.split('/').filter(Boolean);
 
-  // Expected path: /party/betrayal-game/ROOMCODE or /parties/main/ROOMCODE
   let roomCode = pathParts[pathParts.length - 1]?.toUpperCase() || 'TEST';
 
   const connId = Math.random().toString(36).substring(2, 10);
@@ -333,6 +374,7 @@ wss.on('connection', (ws, req) => {
       hostId: room.hostId,
       config: room.config,
       players: room.players,
+      pot: room.pot,
       phase: room.phase,
       roundIndex: room.roundIndex,
       roundStartTime: room.roundStartTime,
@@ -353,7 +395,15 @@ wss.on('connection', (ws, req) => {
             ws.send(JSON.stringify({ type: 'error', message: 'Room is full' }));
             return;
           }
-          room.players[connId] = { id: connId, name, score: 0, ready: false, connected: true, betrayalStreak: 0 };
+          room.players[connId] = {
+            id: connId,
+            name,
+            score: 0,
+            stack: 10,
+            image: 0,
+            ready: false,
+            connected: true,
+          };
           if (!room.hostId) room.hostId = connId;
           broadcast(room, { type: 'player-joined', player: room.players[connId] });
           broadcastState(room);
@@ -372,7 +422,7 @@ wss.on('connection', (ws, req) => {
           if (connId === room.hostId && room.phase === 'LOBBY') {
             room.config = { ...room.config, ...msg.config };
             room.config.timerSeconds = Math.min(20, Math.max(5, room.config.timerSeconds));
-            room.config.totalRounds = Math.min(50, Math.max(5, room.config.totalRounds));
+            room.config.totalRounds = Math.min(30, Math.max(10, room.config.totalRounds));
             broadcast(room, { type: 'config-updated', config: room.config });
           }
           break;
@@ -388,6 +438,13 @@ wss.on('connection', (ws, req) => {
           if (!players.every(p => p.ready)) {
             ws.send(JSON.stringify({ type: 'error', message: 'Not all players are ready' }));
             return;
+          }
+          // Reset game state
+          room.pot = 0;
+          for (const player of Object.values(room.players)) {
+            player.score = 0;
+            player.stack = 10;
+            player.image = 0;
           }
           startRound(room);
           break;
@@ -416,9 +473,11 @@ wss.on('connection', (ws, req) => {
           if (connId !== room.hostId || room.phase !== 'FINISHED') return;
           for (const player of Object.values(room.players)) {
             player.score = 0;
+            player.stack = 10;
+            player.image = 0;
             player.ready = false;
-            player.betrayalStreak = 0;
           }
+          room.pot = 0;
           room.phase = 'LOBBY';
           room.roundIndex = 0;
           room.history = [];
@@ -457,7 +516,6 @@ wss.on('connection', (ws, req) => {
       }
     }
 
-    // Clean up empty rooms
     if (room.connections.size === 0) {
       if (room.roundTimer) clearTimeout(room.roundTimer);
       if (room.revealTimer) clearTimeout(room.revealTimer);

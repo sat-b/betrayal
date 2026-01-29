@@ -5,6 +5,15 @@ interface LeaderboardProps {
   currentPlayerId: string | null;
 }
 
+// Convert image (-5 to +5) to emoji representation
+function getImageEmoji(image: number): string {
+  if (image <= -4) return '😇';
+  if (image <= -2) return '😊';
+  if (image <= 1) return '😐';
+  if (image <= 3) return '😏';
+  return '🐍';
+}
+
 export function Leaderboard({ players, currentPlayerId }: LeaderboardProps) {
   const sorted = Object.values(players).sort((a, b) => b.score - a.score);
 
@@ -31,6 +40,9 @@ export function Leaderboard({ players, currentPlayerId }: LeaderboardProps) {
                 <span className={isYou ? 'font-semibold' : ''}>
                   {player.name}
                   {isYou && ' (You)'}
+                </span>
+                <span className="text-sm" title={`Image: ${player.image}`}>
+                  {getImageEmoji(player.image)}
                 </span>
               </div>
               <span className="font-bold tabular-nums">{player.score}</span>
