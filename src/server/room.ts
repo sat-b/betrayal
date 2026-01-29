@@ -31,6 +31,7 @@ interface RoundResult {
   potContrib: number;
   stackDrain: number;
   loot: number;
+  jackpot: number;       // Bonus from cooperation streak jackpot
   foldingTax: number;
   imageChange: number;
   totalDelta: number;
@@ -68,7 +69,7 @@ interface RoomState {
 
 const DEFAULT_CONFIG: GameConfig = {
   timerSeconds: 10,
-  totalRounds: 15,
+  totalRounds: 20,
 };
 
 export default class BetrayalRoom implements Party.Server {
@@ -382,6 +383,35 @@ export default class BetrayalRoom implements Party.Server {
     }, 5000);
   }
 
+  // Count how many consecutive rounds a player has betrayed (not including current round)
+  getConsecutiveBetrayals(playerId: string): number {
+    let streak = 0;
+    // Look backwards through history
+    for (let i = this.state.history.length - 1; i >= 0; i--) {
+      const round = this.state.history[i];
+      if (round.choices[playerId] === 'B') {
+        streak++;
+      } else {
+        break; // Streak broken
+      }
+    }
+    return streak;
+  }
+
+  // Count consecutive clean rounds (everyone cooperated) - not including current round
+  getConsecutiveCleanRounds(): number {
+    let streak = 0;
+    for (let i = this.state.history.length - 1; i >= 0; i--) {
+      const round = this.state.history[i];
+      if (round.betrayerCount === 0) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+    return streak;
+  }
+
   resolveRound(choices: Record<string, Choice>): { results: Record<string, RoundResult>; potBefore: number; potAfter: number } {
     const results: Record<string, RoundResult> = {};
     const potBefore = this.state.pot;
@@ -400,6 +430,7 @@ export default class BetrayalRoom implements Party.Server {
         potContrib: 0,
         stackDrain: 0,
         loot: 0,
+        jackpot: 0,
         foldingTax: 0,
         imageChange: 0,
         totalDelta: 0,
@@ -436,27 +467,43 @@ export default class BetrayalRoom implements Party.Server {
       // Add drained amount to pot before splitting
       this.state.pot += totalDrain;
 
+      // PROTECTED POT: Only 50% of pot can be stolen, 50% carries over
+      const stealablePot = Math.floor(this.state.pot * 0.5);
+      const protectedPot = this.state.pot - stealablePot;
+
       // Calculate weights for betrayers (lower image = more trusted = higher weight)
+      // Also apply BETRAYER TAX: 50% less loot for each consecutive betrayal
       const weights: Record<string, number> = {};
+      const taxMultipliers: Record<string, number> = {};
       let totalWeight = 0;
       for (const playerId of betrayers) {
         const player = this.state.players[playerId];
         // Cap at 8 to prevent saints from taking everything
-        const weight = Math.min(8, Math.max(1, 6 - player.image));
-        weights[playerId] = weight;
-        totalWeight += weight;
+        const baseWeight = Math.min(8, Math.max(1, 6 - player.image));
+
+        // Betrayer tax: 50% reduction per consecutive betrayal
+        const consecutiveBetrayals = this.getConsecutiveBetrayals(playerId);
+        const taxMultiplier = Math.pow(0.5, consecutiveBetrayals);
+        taxMultipliers[playerId] = taxMultiplier;
+
+        const adjustedWeight = baseWeight * taxMultiplier;
+        weights[playerId] = adjustedWeight;
+        totalWeight += adjustedWeight;
       }
 
-      // Distribute pot to betrayers
-      const potToDistribute = this.state.pot;
+      // Distribute stealable pot to betrayers (proportional to adjusted weights)
+      let totalLooted = 0;
       for (const playerId of betrayers) {
-        const loot = Math.floor(potToDistribute * weights[playerId] / totalWeight);
+        const loot = totalWeight > 0
+          ? Math.floor(stealablePot * weights[playerId] / totalWeight)
+          : 0;
         this.state.players[playerId].score += loot;
         results[playerId].loot = loot;
+        totalLooted += loot;
       }
 
-      // Pot is emptied
-      this.state.pot = 0;
+      // Protected pot remains, plus any rounding leftovers
+      this.state.pot = protectedPot + (stealablePot - totalLooted);
 
       // Cooperators suffer "called and lost" penalty
       for (const playerId of cooperators) {
@@ -468,6 +515,23 @@ export default class BetrayalRoom implements Party.Server {
       for (const playerId of cooperators) {
         this.state.players[playerId].score += 2;
         results[playerId].foldingTax = 2;
+      }
+
+      // Check for COOPERATION JACKPOT: 5 consecutive clean rounds triggers pot split
+      // Note: this round is clean (B === 0), so we check if previous 4 were also clean
+      const previousCleanStreak = this.getConsecutiveCleanRounds();
+      if (previousCleanStreak >= 4 && this.state.pot > 0) {
+        // JACKPOT! Everyone splits the pot
+        const playerCount = Object.keys(choices).length;
+        const jackpotPerPlayer = Math.floor(this.state.pot / playerCount);
+
+        for (const playerId of Object.keys(choices)) {
+          this.state.players[playerId].score += jackpotPerPlayer;
+          results[playerId].jackpot = jackpotPerPlayer;
+        }
+
+        // Pot is emptied (any remainder stays for next cycle)
+        this.state.pot = this.state.pot - (jackpotPerPlayer * playerCount);
       }
     }
 
@@ -488,7 +552,7 @@ export default class BetrayalRoom implements Party.Server {
     // Calculate total deltas
     for (const playerId of Object.keys(choices)) {
       const r = results[playerId];
-      r.totalDelta = r.blind + r.loot + r.foldingTax;
+      r.totalDelta = r.blind + r.loot + r.jackpot + r.foldingTax;
     }
 
     return { results, potBefore, potAfter: this.state.pot };

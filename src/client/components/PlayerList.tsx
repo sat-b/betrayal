@@ -76,9 +76,7 @@ export function PlayerList({
                 )}
                 {!showReady && (
                   <div className="flex items-center gap-2 text-xs">
-                    <span title={`Image: ${player.image}`}>
-                      {getImageEmoji(player.image)}
-                    </span>
+                    <span>{getImageEmoji(player.image)}</span>
                     <span className={stackInfo.color} title={`Stack: ${player.stack}`}>
                       {isYou || !showFuzzy ? `📦${player.stack}` : `📦${stackInfo.label}`}
                     </span>

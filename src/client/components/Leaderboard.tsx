@@ -41,9 +41,7 @@ export function Leaderboard({ players, currentPlayerId }: LeaderboardProps) {
                   {player.name}
                   {isYou && ' (You)'}
                 </span>
-                <span className="text-sm" title={`Image: ${player.image}`}>
-                  {getImageEmoji(player.image)}
-                </span>
+                <span className="text-sm">{getImageEmoji(player.image)}</span>
               </div>
               <span className="font-bold tabular-nums">{player.score}</span>
             </div>

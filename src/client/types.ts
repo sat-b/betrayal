@@ -29,6 +29,7 @@ export interface RoundResult {
   potContrib: number;   // +2 if cooperate, 0 if betray
   stackDrain: number;   // Amount drained by betrayers (if cooperator)
   loot: number;         // Amount stolen from pot (if betrayer)
+  jackpot: number;      // Bonus from cooperation streak jackpot
   foldingTax: number;   // +2 if clean round, -1 if called and lost
   imageChange: number;  // -1 if cooperate, +2 if betray
   totalDelta: number;   // Net score change

@@ -75,7 +75,7 @@ export function EndScreen({ state, playerId, onRematch }: EndScreenProps) {
                         {isYou && <span className="text-blue-400 ml-1">(You)</span>}
                       </div>
                       <div className="text-xs text-slate-400 flex items-center gap-2">
-                        <span>{getImageEmoji(player.image)} Final image: {player.image}</span>
+                        <span>{getImageEmoji(player.image)}</span>
                         <span>📦 Stack: {player.stack}</span>
                       </div>
                     </div>
